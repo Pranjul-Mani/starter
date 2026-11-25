@@ -1,13 +1,13 @@
 {
   "profile": "full",
-  "startedAt": "2026-11-25T13:10:59.038Z",
+  "startedAt": "2026-11-25T13:28:01.029Z",
   "checks": [
     {
       "level": 1,
       "id": "inbound_complete",
       "max": 4,
       "got": 4,
-      "detail": "182 of 182 genuine messages stored"
+      "detail": "172 of 172 genuine messages stored"
     },
     {
       "level": 1,
@@ -49,7 +49,7 @@
       "id": "ack_speed",
       "max": 1,
       "got": 1,
-      "detail": "p95 acknowledgement 17 ms, 0 first attempts not acknowledged"
+      "detail": "p95 acknowledgement 30 ms, 0 first attempts not acknowledged"
     },
     {
       "level": 1,
@@ -84,14 +84,14 @@
       "id": "outage_recovery",
       "max": 2,
       "got": 2,
-      "detail": "6 of 6 replies requested during a 8 s provider outage were delivered afterwards, 0 more than once; 19 requests made during the outage"
+      "detail": "6 of 6 replies requested during a 8 s provider outage were delivered afterwards, 0 more than once; 18 requests made during the outage"
     },
     {
       "level": 2,
       "id": "crash_inbound_complete",
       "max": 3,
-      "got": 1.16,
-      "detail": "killed at 10 s, down 4 s: 136 of 189 genuine messages stored"
+      "got": 3,
+      "detail": "killed at 11 s, down 4 s: 178 of 178 genuine messages stored"
     },
     {
       "level": 2,
@@ -133,7 +133,7 @@
       "id": "multi_inbound_complete",
       "max": 2,
       "got": 2,
-      "detail": "176 of 176 genuine messages stored"
+      "detail": "179 of 179 genuine messages stored"
     },
     {
       "level": 3,
@@ -227,7 +227,7 @@
       "detail": "4 of 4 messages that arrived while disconnected were replayed after reconnecting with after=6; 0 frames at or before that seq were sent again"
     }
   ],
-  "score": 73.2,
+  "score": 75,
   "max": 75,
   "levels": {
     "1": {
@@ -235,7 +235,7 @@
       "max": 24
     },
     "2": {
-      "got": 12.2,
+      "got": 14,
       "max": 14
     },
     "3": {
@@ -247,5 +247,5 @@
       "max": 15
     }
   },
-  "finishedAt": "2026-11-25T13:17:19.600Z"
+  "finishedAt": "2026-11-25T13:31:57.787Z"
 }
