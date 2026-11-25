@@ -1,13 +1,12 @@
-import { MongoClient, type Db } from 'mongodb';
+﻿import { MongoClient } from 'mongodb';
 import { config } from './config.ts';
 
-let client: MongoClient | undefined;
+let connection: Promise<MongoClient> | undefined;
 
-// Connects on first use. Call from anywhere: const db = await getDb();
-export async function getDb(): Promise<Db> {
-  if (!client) {
-    client = new MongoClient(config.mongoUrl);
-    await client.connect();
-  }
-  return client.db();
+export async function getDb() {
+  connection ??= new MongoClient(config.mongoUrl).connect().catch(error => {
+    connection = undefined;
+    throw error;
+  });
+  return (await connection).db();
 }

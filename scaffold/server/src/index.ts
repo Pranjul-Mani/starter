@@ -2,13 +2,18 @@ import express from 'express';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 import { config } from './config.ts';
-import { claimConversation, collections, initializeInbox, knownWorkspace, queueReply, receiveMessage, startOutbox, updateStatus } from './inbox.ts';
+import { claimConversation, collections, initializeInbox, knownWorkspace, queueReply, receiveMessage, updateStatus } from './inbox.ts';
+
+import { api } from './api.ts';
+import { auth, initializeAuth } from './auth.ts';
+import { field, route } from './http.ts';
+import { clearEvents, initializeEvents, startEventPublisher } from './events.ts';
+import { attachSockets } from './sockets.ts';
+import { initializeDispatch, resetDispatch, startOutbox } from './outbox.ts';
 
 const app = express();
-const field = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
-const route = (handler: (req: express.Request, res: express.Response) => Promise<void>): express.RequestHandler =>
-  (req, res, next) => { handler(req, res).catch(next); };
-
+app.use('/auth', auth);
+app.use('/api', api);
 app.get('/healthz', (_req, res) => {
   res.json({ ok: true });
 });
@@ -71,6 +76,7 @@ grader.use(express.json());
 grader.post('/reset', route(async (_req, res) => {
   const { conversations, inbound, replies } = await collections();
   await Promise.all([conversations.deleteMany({}), inbound.deleteMany({}), replies.deleteMany({})]);
+  await Promise.all([clearEvents(), resetDispatch()]);
   res.sendStatus(200);
 }));
 grader.post('/reply', route(async (req, res) => {
@@ -114,9 +120,11 @@ grader.get('/snapshot', route(async (_req, res) => {
 }));
 app.use('/__grader', grader);
 
-await initializeInbox();
+await Promise.all([initializeInbox(), initializeAuth(), initializeEvents(), initializeDispatch()]);
 const server = createServer(app);
+attachSockets(server);
 server.listen(config.port, () => {
   startOutbox();
+  startEventPublisher();
   console.log(`server on http://localhost:${config.port}`);
 });
