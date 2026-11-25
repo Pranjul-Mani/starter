@@ -1,4 +1,5 @@
-﻿import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { canSend } from './billing.ts';
 import { config } from './config.ts';
 import { getDb } from './db.ts';
 import { collections, touchConversation, updateStatus } from './inbox.ts';
@@ -47,6 +48,10 @@ async function dispatchOne(workspace: string) {
     );
     if (!reply) return;
 
+    if (!(await canSend(workspace))) {
+      await updateStatus(workspace, reply.clientRef, 'failed');
+      return;
+    }
     await touchConversation(workspace, reply.contact, reply.createdAt);
     const backoff = Math.min(8000, 500 * 2 ** Math.min(reply.attempts, 4));
     let nextAttempt = new Date(Date.now() + backoff);

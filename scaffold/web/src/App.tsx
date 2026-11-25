@@ -1,4 +1,5 @@
-﻿import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { BillingPanel } from './BillingPanel';
 import './app.css';
 
 type User = { sub: string; name: string; workspaces: { id: string; role: string }[] };
@@ -180,6 +181,7 @@ function Workspace({ id, user, switchWorkspace, onExpired }: {
   switchWorkspace: (value: string) => void;
   onExpired: () => void;
 }) {
+  const [billingOpen, setBillingOpen] = useState(false);
   const [filter, setFilter] = useState<Filter>('all');
   const [contact, setContact] = useState<string | null>(null);
   const [conversationPage, setConversationPage] = useState<Page>();
@@ -228,7 +230,7 @@ function Workspace({ id, user, switchWorkspace, onExpired }: {
   }
 
   return (
-    <main className={'workspace' + (contact ? ' has-thread' : '')}>
+    <main className={'workspace' + (billingOpen ? ' billing-open' : contact ? ' has-thread' : '')}>
       <aside className="workspace-sidebar" aria-label="Workspace">
         <div className="workspace-identity">
           <span className="workspace-mark" aria-hidden="true">{name.slice(0, 1)}</span>
@@ -242,8 +244,15 @@ function Workspace({ id, user, switchWorkspace, onExpired }: {
             </select>
           </label>
         )}
+        {membership?.role === 'admin' && (
+          <nav className="workspace-pages" aria-label="Workspace pages">
+            <button aria-pressed={!billingOpen} onClick={() => setBillingOpen(false)}>Inbox</button>
+            <button aria-pressed={billingOpen} onClick={() => setBillingOpen(true)}>Billing</button>
+          </nav>
+        )}
         <div className="live" role="status"><span className={online ? 'online' : ''} />{online ? 'Live updates' : 'Reconnecting'}</div>
       </aside>
+      {billingOpen ? <BillingPanel workspace={id} onExpired={onExpired} /> : <>
       <section className="inbox-list" aria-labelledby="inbox-heading">
         <header className="list-header">
           <h1 id="inbox-heading">Inbox</h1>
@@ -286,6 +295,7 @@ function Workspace({ id, user, switchWorkspace, onExpired }: {
           </div>
         )}
       </section>
+      </>}
     </main>
   );
 }
@@ -341,6 +351,7 @@ function ConversationThread({ contact, agent, query, revision, refresh, close, o
     } catch (reason) {
       if (reason instanceof RequestError && reason.status === 401) onExpired();
       else if (reason instanceof RequestError && reason.status === 409) setActionError('Another agent already claimed this conversation.');
+      else if (reason instanceof RequestError && reason.status === 402) setActionError('This workspace cannot send replies because its subscription is canceled.');
       else setActionError('The action failed. Try again.');
       return false;
     } finally {

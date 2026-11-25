@@ -1,12 +1,12 @@
+import { billingView, canSend, changeSeats, refreshFromWebhook, resetBilling, subscribe, validCardToken, validSeats } from './billing.ts';
 import express from 'express';
-import { createHmac, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 import { config } from './config.ts';
 import { claimConversation, collections, initializeInbox, knownWorkspace, queueReply, receiveMessage, updateStatus } from './inbox.ts';
 
 import { api } from './api.ts';
 import { auth, initializeAuth } from './auth.ts';
-import { field, route } from './http.ts';
+import { field, route, validWebhook } from './http.ts';
 import { clearEvents, initializeEvents, startEventPublisher } from './events.ts';
 import { attachSockets } from './sockets.ts';
 import { initializeDispatch, resetDispatch, startOutbox } from './outbox.ts';
@@ -19,14 +19,8 @@ app.get('/healthz', (_req, res) => {
 });
 
 app.post('/webhooks/pigeon', express.raw({ type: () => true }), route(async (req, res) => {
-  const signature = /^t=(\d+),v1=([a-f0-9]{64})$/i.exec(req.get('x-pigeon-signature') ?? '');
   const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
-  if (!signature || Math.abs(Math.floor(Date.now() / 1000) - Number(signature[1])) > 300) {
-    res.sendStatus(401);
-    return;
-  }
-  const expected = createHmac('sha256', config.pigeon.webhookSecret).update(signature[1] + '.').update(raw).digest();
-  if (!timingSafeEqual(expected, Buffer.from(signature[2], 'hex'))) {
+  if (!validWebhook(req.get('x-pigeon-signature'), raw, config.pigeon.webhookSecret)) {
     res.sendStatus(401);
     return;
   }
@@ -63,6 +57,27 @@ app.post('/webhooks/pigeon', express.raw({ type: () => true }), route(async (req
   res.sendStatus(204);
 }));
 
+app.post('/webhooks/paybox', express.raw({ type: () => true }), route(async (req, res) => {
+  const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  if (!validWebhook(req.get('x-paybox-signature'), raw, config.paybox.webhookSecret)) {
+    res.sendStatus(401);
+    return;
+  }
+  let event;
+  try {
+    event = JSON.parse(raw.toString('utf8'));
+  } catch {
+    res.sendStatus(400);
+    return;
+  }
+  const object = event?.data?.object;
+  const subscription = object?.object === 'subscription' ? object.id : object?.subscription;
+  if (field(object?.customer) && field(subscription)) {
+    await refreshFromWebhook(object.customer, subscription);
+  }
+  res.sendStatus(204);
+}));
+
 const grader = express.Router();
 grader.use((req, res, next) => {
   if (req.get('x-grader-token') !== config.graderToken) {
@@ -76,13 +91,17 @@ grader.use(express.json());
 grader.post('/reset', route(async (_req, res) => {
   const { conversations, inbound, replies } = await collections();
   await Promise.all([conversations.deleteMany({}), inbound.deleteMany({}), replies.deleteMany({})]);
-  await Promise.all([clearEvents(), resetDispatch()]);
+  await Promise.all([clearEvents(), resetDispatch(), resetBilling()]);
   res.sendStatus(200);
 }));
 grader.post('/reply', route(async (req, res) => {
   const { workspace, contact, text, client_ref } = req.body ?? {};
   if (!knownWorkspace(workspace) || !field(contact) || !field(text) || !field(client_ref)) {
     res.sendStatus(400);
+    return;
+  }
+  if (!(await canSend(workspace))) {
+    res.sendStatus(402);
     return;
   }
   await queueReply(workspace, contact, client_ref, text);
@@ -96,12 +115,36 @@ grader.post('/claim', route(async (req, res) => {
   }
   res.sendStatus(await claimConversation(workspace, contact, agent) ? 200 : 409);
 }));
+grader.post('/billing/subscribe', route(async (req, res) => {
+  const { workspace, seats, token } = req.body ?? {};
+  if (!knownWorkspace(workspace) || !validSeats(seats) || !validCardToken(token)) {
+    res.sendStatus(400);
+    return;
+  }
+  const billing = await subscribe(workspace, seats, token);
+  res.status(billing.status === 'active' ? 200 : 402).json({ billing });
+}));
+
+grader.post('/billing/seats', route(async (req, res) => {
+  const { workspace, seats } = req.body ?? {};
+  if (!knownWorkspace(workspace) || !validSeats(seats)) {
+    res.sendStatus(400);
+    return;
+  }
+  const { ok, billing } = await changeSeats(workspace, seats);
+  res.status(ok ? 200 : 402).json({ billing });
+}));
+
 grader.get('/snapshot', route(async (_req, res) => {
   const { conversations, inbound, replies } = await collections();
-  const workspaces = Object.fromEntries(Object.keys(config.pigeon.apiKeys).map(workspace => [workspace, {
-    contacts: Object.create(null) as Record<string, { inbound: string[]; assignee: string | null }>,
-    outbound: Object.create(null) as Record<string, string>,
-  }]));
+  const workspaces = Object.fromEntries(await Promise.all(Object.keys(config.pigeon.apiKeys).map(async workspace => {
+    const { status, seats, can_send } = await billingView(workspace);
+    return [workspace, {
+      contacts: Object.create(null) as Record<string, { inbound: string[]; assignee: string | null }>,
+      outbound: Object.create(null) as Record<string, string>,
+      billing: { status, seats, can_send },
+    }] as const;
+  })));
   const [contacts, messages, outgoing] = await Promise.all([
     conversations.find().toArray(),
     inbound.find().sort({ occurredAt: 1, messageId: 1 }).toArray(),

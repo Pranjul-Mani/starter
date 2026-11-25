@@ -1,4 +1,6 @@
-﻿import { Router, json, type Request, type Response } from 'express';
+import { billingView, canSend, changeSeats, subscribe, validCardToken, validSeats } from './billing.ts';
+import { config } from './config.ts';
+import { Router, json, type Request, type Response } from 'express';
 import { allowedOrigin, getSession } from './auth.ts';
 import { field, route } from './http.ts';
 import { claimConversation, conversationDetail, knownWorkspace, listConversations, queueReply, setConversationState } from './inbox.ts';
@@ -22,7 +24,7 @@ api.get('/me', route(async (req, res) => {
   res.json({ sub: session.sub, name: session.name, workspaces: session.workspaces });
 }));
 
-function workspaceRoute(handler: (req: Request, res: Response, workspace: string, agent: string) => Promise<void>) {
+function workspaceRoute(handler: (req: Request, res: Response, workspace: string, agent: string) => Promise<void>, adminOnly = false) {
   return route(async (req, res) => {
     const session = await getSession(req.headers.cookie);
     if (!session) {
@@ -30,7 +32,8 @@ function workspaceRoute(handler: (req: Request, res: Response, workspace: string
       return;
     }
     const workspace = req.query.workspace;
-    if (!knownWorkspace(workspace) || !session.workspaces.some(member => member.id === workspace)) {
+    const membership = session.workspaces.find(member => member.id === workspace);
+    if (!knownWorkspace(workspace) || !membership || (adminOnly && membership.role !== 'admin')) {
       res.sendStatus(403);
       return;
     }
@@ -79,6 +82,10 @@ api.post('/conversations/:contact/replies', json(), workspaceRoute(async (req, r
     res.sendStatus(400);
     return;
   }
+  if (!(await canSend(workspace))) {
+    res.sendStatus(402);
+    return;
+  }
   await queueReply(workspace, req.params.contact, client_ref, text.trim());
   res.sendStatus(202);
 }));
@@ -91,3 +98,30 @@ api.post('/conversations/:contact/state', json(), workspaceRoute(async (req, res
   }
   res.sendStatus(await setConversationState(workspace, req.params.contact, state) ? 200 : 404);
 }));
+
+api.get('/billing', workspaceRoute(async (_req, res, workspace) => {
+  res.json({
+    billing: await billingView(workspace),
+    paybox: { url: config.paybox.publicUrl, publishableKey: config.paybox.publishableKey },
+  });
+}, true));
+
+api.post('/billing/subscribe', json(), workspaceRoute(async (req, res, workspace) => {
+  const { seats, token } = req.body ?? {};
+  if (!validSeats(seats) || !validCardToken(token)) {
+    res.sendStatus(400);
+    return;
+  }
+  const billing = await subscribe(workspace, seats, token);
+  res.status(billing.status === 'active' ? 200 : 402).json({ billing });
+}, true));
+
+api.post('/billing/seats', json(), workspaceRoute(async (req, res, workspace) => {
+  const { seats } = req.body ?? {};
+  if (!validSeats(seats)) {
+    res.sendStatus(400);
+    return;
+  }
+  const { ok, billing } = await changeSeats(workspace, seats);
+  res.status(ok ? 200 : 402).json({ billing });
+}, true));

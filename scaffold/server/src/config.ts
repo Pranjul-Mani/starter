@@ -31,6 +31,7 @@ export const config = {
   },
   paybox: {
     url: env('PAYBOX_URL', 'http://localhost:4030'),
+    publicUrl: env('PAYBOX_PUBLIC_URL', env('PAYBOX_URL', 'http://localhost:4030')),
     secretKey: env('PAYBOX_SECRET_KEY', 'sk_test_paybox_51c0de'),
     publishableKey: env('PAYBOX_PUBLISHABLE_KEY', 'pk_test_paybox_9a7b3e'),
     webhookSecret: env('PAYBOX_WEBHOOK_SECRET', 'whsec_paybox_dev'),
